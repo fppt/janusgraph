@@ -15,13 +15,6 @@
 package org.janusgraph.graphdb.tinkerpop;
 
 import com.google.common.base.Preconditions;
-import org.janusgraph.core.*;
-import org.janusgraph.core.schema.EdgeLabelMaker;
-import org.janusgraph.core.schema.PropertyKeyMaker;
-import org.janusgraph.core.schema.VertexLabelMaker;
-import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
-import org.janusgraph.graphdb.database.StandardJanusGraph;
-import org.janusgraph.graphdb.olap.computer.FulgoraGraphComputer;
 import org.apache.commons.configuration.Configuration;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -31,11 +24,28 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.AbstractThreadLocalTransaction;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
+import org.janusgraph.core.EdgeLabel;
+import org.janusgraph.core.JanusGraph;
+import org.janusgraph.core.JanusGraphIndexQuery;
+import org.janusgraph.core.JanusGraphMultiVertexQuery;
+import org.janusgraph.core.JanusGraphQuery;
+import org.janusgraph.core.JanusGraphTransaction;
+import org.janusgraph.core.JanusGraphVertex;
+import org.janusgraph.core.PropertyKey;
+import org.janusgraph.core.RelationType;
+import org.janusgraph.core.VertexLabel;
+import org.janusgraph.core.schema.EdgeLabelMaker;
+import org.janusgraph.core.schema.PropertyKeyMaker;
+import org.janusgraph.core.schema.VertexLabelMaker;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
+import org.janusgraph.graphdb.database.StandardJanusGraph;
+import org.janusgraph.graphdb.olap.computer.FulgoraGraphComputer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -54,6 +64,7 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
 
     // ########## TRANSACTION HANDLING ###########################
 
+    private AtomicInteger numOpenTxs = new AtomicInteger(0);
     final GraphTransaction tinkerpopTxContainer = new GraphTransaction();
 
     private ThreadLocal<JanusGraphBlueprintsTransaction> txs = new ThreadLocal<JanusGraphBlueprintsTransaction>() {
@@ -63,6 +74,10 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
         }
 
     };
+
+    public int getOpenTxs(){
+        return numOpenTxs.get();
+    }
 
     public abstract JanusGraphTransaction newThreadBoundTransaction();
 
@@ -81,6 +96,7 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
         if (tx!=null && tx.isOpen()) throw Transaction.Exceptions.transactionAlreadyOpen();
         tx = (JanusGraphBlueprintsTransaction) newThreadBoundTransaction();
         txs.set(tx);
+        numOpenTxs.incrementAndGet();
         log.debug("Created new thread-bound transaction {}", tx);
         return tx;
     }
@@ -270,6 +286,7 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
         @Override
         public void doCommit() {
             getAutoStartTx().commit();
+            numOpenTxs.decrementAndGet();
         }
 
         @Override
@@ -295,6 +312,7 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
         @Override
         public void close() {
             close(this);
+            numOpenTxs.decrementAndGet();
         }
 
         void close(Transaction tx) {
