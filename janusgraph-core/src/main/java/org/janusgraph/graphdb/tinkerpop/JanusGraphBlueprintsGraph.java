@@ -286,7 +286,6 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
         @Override
         public void doCommit() {
             getAutoStartTx().commit();
-            numOpenTxs.decrementAndGet();
         }
 
         @Override
